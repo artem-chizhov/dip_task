@@ -1,0 +1,65 @@
+version: '3.9'
+
+networks:
+ backend:
+
+services:
+ db:
+  container_name: new_db
+  image: postgres:alpine
+  restart: unless-stopped
+  expose:
+   - 5432
+  networks:
+   - backend
+  volumes:
+   - ./logs:/var/log
+  environment:
+   - POSTGRES_DB=new_db
+   - POSTGRES_USER=new_user
+   - POSTGRES_PASSWORD=new_user
+  healthcheck:
+   test: ["CMD-SHELL", "pg_isready -U postgres -d pythonapp_db"]
+   interval: 1m30s
+   timeout: 30s
+   retries: 5
+   start_period: 30s
+ pythonapp:
+  container_name: pythonapp
+  build: .
+  command: >
+   sh -c "gunicorn --bind 0.0.0.0:8000 orders.wsgi:application |
+          python -m celery -A orders worker -E"
+  expose:
+   - 8000
+  depends_on:
+    db:
+      condition: service_healthy
+      restart: true
+  networks:
+   - backend
+  links:
+   - db:new_db
+  volumes:
+   - ./orders:/code
+   - ./logs/celery:/var/log/celery
+  env_file:
+   - ./orders/orders/.env
+ nginx:
+  image: nginx:latest
+  restart: unless-stopped
+  networks:
+   - backend
+  volumes:
+   - ./logs/nginx:/var/log/nginx
+   - ./conf.d/:/etc/nginx/conf.d/
+   - ./static/:/staticfiles/static/
+  ports: 
+   - 80:80
+ redis:
+  image: redis:alpine
+  restart: unless-stopped
+  networks:
+   - backend
+  expose:
+   - 6379
